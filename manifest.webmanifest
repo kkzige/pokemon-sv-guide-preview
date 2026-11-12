@@ -1,0 +1,27 @@
+{
+  "id": "./",
+  "name": "太晶战术图鉴 · 朱／紫",
+  "short_name": "太晶图鉴",
+  "description": "《宝可梦 朱／紫》本篇及DLC辅助图鉴：构建时生成基础离线物种与招式索引，属性、进化、繁殖、培养及精选地点查询。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "lang": "zh-CN",
+  "background_color": "#f5f7fa",
+  "theme_color": "#101a2e",
+  "icons": [
+    {
+      "src": "./apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
