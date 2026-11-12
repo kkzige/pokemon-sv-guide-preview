@@ -1,0 +1,67 @@
+name: Build Pokemon SV PREVIEW (isolated test site)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: preview-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Safeguard: this workflow will NOT deploy from the production repository.
+    if: github.repository == 'kkzige/pokemon-sv-guide-preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Validate required files
+        run: |
+          python -m py_compile build_sv_data.py
+          for f in index.html sw.js manifest.webmanifest icon.svg apple-touch-icon.png version.json; do test -s "$f"; done
+      - name: Generate full offline snapshot for preview
+        run: |
+          mkdir -p site
+          python build_sv_data.py --output site/sv-data.json --coverage site/coverage.json
+      - name: Verify data completeness before publishing preview
+        run: |
+          python - <<'PYVERIFY'
+          import json
+          from pathlib import Path
+          c=json.loads(Path('site/coverage.json').read_text(encoding='utf-8'))
+          d=json.loads(Path('site/sv-data.json').read_text(encoding='utf-8'))
+          for region,n in {'帕底亚':400,'北上乡':200,'蓝莓':243}.items():
+              assert c['regionSpecies'].get(region,0)>=n,(region,c['regionSpecies'].get(region,0))
+          assert c['pokemonSpeciesSearchable']>=400,c
+          assert c['svMoveEntries']>=350,c
+          assert len(d['pokemon'])>=500,len(d['pokemon'])
+          print('PREVIEW DATA GATE PASS')
+          print(json.dumps(c,ensure_ascii=False,indent=2))
+          PYVERIFY
+      - name: Assemble preview website
+        run: |
+          cp index.html sw.js manifest.webmanifest icon.svg apple-touch-icon.png version.json site/
+          test -s site/index.html && test -s site/sv-data.json
+          touch site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    if: github.repository == 'kkzige/pokemon-sv-guide-preview'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy isolated preview to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
