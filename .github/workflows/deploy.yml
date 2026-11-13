@@ -1,4 +1,4 @@
-name: Build Pokemon SV PREVIEW (isolated test site)
+name: Build Pokemon SV PREVIEW v1.2.1 (iPhone offline fix)
 
 on:
   push:
@@ -46,9 +46,31 @@ jobs:
           print('PREVIEW DATA GATE PASS')
           print(json.dumps(c,ensure_ascii=False,indent=2))
           PYVERIFY
-      - name: Assemble preview website
+      - name: Assemble self-contained preview for iPhone Safari
         run: |
-          cp index.html sw.js manifest.webmanifest icon.svg apple-touch-icon.png version.json site/
+          cp sw.js manifest.webmanifest icon.svg apple-touch-icon.png version.json site/
+          python - <<'PYEMBED'
+          import json
+          from pathlib import Path
+          data=Path('site/sv-data.json').read_text(encoding='utf-8')
+          obj=json.loads(data)
+          assert obj['schema']==1 and len(obj['pokemon'])>=500
+          assert len(obj['directory'])>=400 and len(obj['moves'])>=350
+          # Inert JSON in the same HTML download: Safari needs no second fetch.
+          safe=data.replace('<',r'\u003c')
+          marker='<script id="sv-offline-snapshot" type="application/json">'+safe+'</script>'
+          html=Path('index.html').read_text(encoding='utf-8')
+          assert '</head>' in html and 'initSVSnapshot' in html
+          html=html.replace('</head>',marker+'\n</head>',1)
+          Path('site/index.html').write_text(html,encoding='utf-8')
+          coverage_file=Path('site/coverage.json')
+          coverage=json.loads(coverage_file.read_text(encoding='utf-8'))
+          coverage['version']='1.2.1'
+          coverage_file.write_text(json.dumps(coverage,ensure_ascii=False,indent=2),encoding='utf-8')
+          assert json.loads(safe)['schema']==1
+          print('PREVIEW HTML INLINE DATABASE:',len(data),'JSON characters')
+          print('PREVIEW HTML SIZE:',Path('site/index.html').stat().st_size,'bytes')
+          PYEMBED
           test -s site/index.html && test -s site/sv-data.json
           touch site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
