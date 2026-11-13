@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="太晶战术图鉴">
   <meta name="description" content="专为《宝可梦 朱／紫》设计的属性克制、太晶、特性、招式和努力值计算工具。">
-  <title>太晶战术图鉴 · 朱／紫 V1.2.0</title>
+  <title>太晶战术图鉴 · 朱／紫 V1.2.1</title>
   <link rel="icon" type="image/svg+xml" href="./icon.svg">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
   <link rel="manifest" href="./manifest.webmanifest">
@@ -550,6 +550,12 @@ button:focus-visible, input:focus-visible, select:focus-visible {outline:3px sol
 .suggestion:active,.suggestion:focus-visible{background:#e8efff;outline:2px solid #5274d8;outline-offset:-2px}
 @media(max-width:440px){.suggestion{min-height:56px;padding:13px 12px}.suggestion span:last-child{font-size:12px}}
 
+/* V1.2.1-preview: visible data readiness and safer mobile typing/taps */
+.data-ready{background:#eaf7f1;border:1px solid #b9e3cc;color:#126249;font-size:14px;line-height:1.6;border-radius:12px;padding:11px 14px;margin:0 0 14px;font-weight:650}
+.suggestions{z-index:120;max-height:min(42dvh,370px);-webkit-overflow-scrolling:touch}
+.suggestion{min-height:54px;touch-action:manipulation}
+@media(max-width:830px){.data-ready{font-size:15px}.suggestion{min-height:60px}.suggestions{max-height:min(38dvh,330px)}.suggestion span:last-child{overflow:hidden;max-width:48%;text-overflow:ellipsis}}
+
 </style>
 </head>
 <body>
@@ -846,9 +852,18 @@ const SV_ABILITY_ZH=new Map();
 async function initSVSnapshot(){
  if(SV_SNAPSHOT)return SV_SNAPSHOT.coverage;
  try{
-  const res=await fetch('./sv-data.json');
-  if(!res.ok)throw new Error(`离线快照未发布 HTTP ${res.status}`);
-  const data=await res.json();
+  // iOS Safari and standalone PWAs can fail a secondary fetch even when the page
+  // itself loads. The preview build embeds the verified data as inert JSON.
+  // Prefer that same-origin, build-time payload, then fall back to the JSON file.
+  let data;
+  const inline=typeof document!=='undefined'?document.getElementById('sv-offline-snapshot'):null;
+  if(inline?.textContent?.trim()){
+    data=JSON.parse(inline.textContent);
+  }else{
+    const res=await fetch('./sv-data.json',{cache:'default'});
+    if(!res.ok)throw new Error(`离线快照未发布 HTTP ${res.status}`);
+    data=await res.json();
+  }
   if(data.schema!==1 || !Array.isArray(data.pokemon) || data.pokemon.length<500 || !data.breedingIndex?.length || Object.keys(data.moves||{}).length<350)
     throw new Error('资料快照不完整，已阻止加载');
   SV_SNAPSHOT=data;
@@ -2122,6 +2137,13 @@ function renderMatchCard(r){const c=r.value>=2?'strong':r.value===0?'zero':r.val
 }
 function opponent(){return state.manual?{zh:'自定义属性组合',types:[state.manualType1,state.manualType2].filter(Boolean)}:state.foe;}
 function displayStatus(){return state.status?`<div class="callout ${state.statusError?'danger-note':''}" style="margin-bottom:16px">${escapeHTML(state.status)}</div>`:'';}
+
+function dataStatus(){
+ const stats=getSVSnapshotStats();
+ return stats?`<div class="data-ready">✓ 已载入离线基础索引 · ${stats.pokemonSpeciesSearchable||'?'}种物种 · ${stats.svMoveEntries||'?'}种招式</div>`:
+ `<div class="callout warning">基础数据库尚未载入：${escapeHTML(getSVSnapshotError()||'正在初始化')}。当前仅能查询内置精选数据；请先检查测试站版本与部署是否完成。</div>`;
+}
+
 function renderMoveProbe(foe){
  const entries=Object.entries(COMMON_MOVES).sort((a,b)=>a[1].zh.localeCompare(b[1].zh,'zh-CN'));
  const m=COMMON_MOVES[state.selectedMove]||COMMON_MOVES['play-rough'];
@@ -2353,7 +2375,7 @@ function renderBreeding(){
  const filter=state.breedPartnerFilter.trim().toLowerCase();
  const list=allPartners.filter(({p})=>!filter||p.zh.toLowerCase().includes(filter)||p.en.toLowerCase().includes(filter)).slice(0,24);
  const badge=result.status==='yes'?(result.baby?.zh?'<span class="tag success">可以配对 · 后代已识别</span>':'<span class="tag info">可配对 · 后代待核对</span>'):result.status==='no'?'<span class="tag warn">无法配对</span>':'<span class="tag info">资料不足</span>';
- return pTitle('繁殖与遗传','选两只宝可梦，检查蛋群、性别和后代种类，再查看性格、特性与个体值的遗传方式。')+displayStatus()+
+ return pTitle('繁殖与遗传','选两只宝可梦，检查蛋群、性别和后代种类，再查看性格、特性与个体值的遗传方式。')+dataStatus()+displayStatus()+
  `<div class="panel"><div class="paneltop"><h2>01 / 配对组合</h2><span class="tag info">朱／紫野餐孵蛋</span></div>
  <div class="examples" style="margin-bottom:14px">
  <button class="exbtn" data-action="breed-example" data-example="dragon">快龙 ♀＋暴鲤龙 ♂</button>
@@ -2405,7 +2427,7 @@ function renderDex(){
  const p=state.dexPoke;
  const weakness=offenseList(p,'none','').filter(x=>x.value>1);
  const immunity=offenseList(p,'none','').filter(x=>x.value===0);
- return pTitle('图鉴与能力查询','查看属性图标、离线进化家族、种族值，以及精选已核实的野外分布与掉落材料。图片首次显示需要网络。')+displayStatus()+
+ return pTitle('图鉴与能力查询','查看属性图标、离线进化家族、种族值，以及精选已核实的野外分布与掉落材料。图片首次显示需要网络。')+dataStatus()+displayStatus()+
  `<div class="panel"><div class="paneltop"><h2>搜索宝可梦</h2><span class="tag info">中英双语</span></div>${searchBox('dex',state.dexQuery)}<div class="examples" style="margin-top:12px"><button class="exbtn" data-action="quick-dex" data-name="迷你龙">迷你龙</button><button class="exbtn" data-action="quick-dex" data-name="伊布">伊布</button><button class="exbtn" data-action="quick-dex" data-name="巴布土拨">巴布土拨</button><button class="exbtn" data-action="quick-dex" data-name="海豚侠">海豚侠</button><button class="exbtn" data-action="quick-dex" data-name="苍炎刃鬼">苍炎刃鬼</button><button class="exbtn" data-action="quick-dex" data-name="厄诡椪">DLC：厄诡椪</button></div></div>
  <div class="panel">${specSummary(p)}<div class="picture-help">宝可梦外观参考图从公共图片服务器联网加载，非游戏官方授权图库；离线时自动显示编号占位。不会将第三方形象图打包进公开仓库。</div><div class="divider"></div><dl class="kv"><dt>属性</dt><dd>${p.types.map(t=>typePick(t)).join(' ')}</dd><dt>可拥有特性</dt><dd>${(p.abilities||[]).map(a=>`<span class="chip">${escapeHTML(abilityZh(a))}</span>`).join('')}</dd></dl></div>
  <div class="panel"><div class="paneltop"><h2>特殊进化条件</h2></div><p class="help">觉醒之石限定性别、交换进化、累计使用招式、随行1000步等，可直接查看核实步骤。</p><button class="btn" data-action="show-special-evo">打开特殊进化速查 →</button></div>
@@ -2514,7 +2536,7 @@ function renderGenericTrainingMoves(){
  <div class="help" style="margin-top:13px">${p.origin==='remote'?'使用了《朱／紫》可学习招式表进行筛选（仍需核对具体学习条件）。':'离线条目仅包含常用招式示例，不能代表完整可学招式表。'} 未计算战斗中特性、道具、天气或团体战专有战术。</div>
  <button class="btn small subtle" style="margin-top:12px" data-action="sync-moves">联网同步完整招式资料</button>`;
 }
-const APP_VERSION='1.2.0';
+const APP_VERSION='1.2.1';
 function materialCard(m){
  const current=state.selectedMaterial===m.id;
  const tms=recipesUsing(m.id);
@@ -2774,6 +2796,16 @@ function showSuggestions(kind,text){
 }
 async function lookup(kind,input){
  const value=String(input??$(`#search-${kind}`)?.value??'').trim();if(!value)return;
+ // A one-character Chinese fragment is not an API identifier. Never send it
+ // to PokéAPI; on mobile this previously produced a misleading Load failed.
+ const exact=localPokemon(value);
+ const partials=matchingPokemon(value);
+ if(!exact && /[\u3400-\u9fff]/.test(value) && partials.length && !partials.some(p=>p.zh===value)){
+   state.status=`“${value}”匹配 ${partials.length} 个本地候选。请点击下方完整名称，或继续输入。`;
+   state.statusError=false;
+   showSuggestions(kind,value);
+   return;
+ }
  state.busy=true;state.status='';state.statusError=false;
  try{
   const p=await lookupPokemon(value);
@@ -3012,13 +3044,22 @@ document.addEventListener('click',async event=>{
  }
 });
 document.addEventListener('input',event=>{
+ // Wait until Chinese/Japanese IME has committed the character on iOS.
+ if(event.isComposing)return;
  const teamInput=event.target.closest('.team-lookup');if(teamInput){showTeamSuggestions(Number(teamInput.dataset.teamQuery),teamInput.value);return;}
  const inp=event.target.closest('.pk-search');if(!inp)return;
  const kind=inp.dataset.search;
  state[({foe:'foeQuery',own:'ownQuery',dex:'dexQuery',breedA:'breedAQuery',breedB:'breedBQuery'})[kind]||'dexQuery']=inp.value;
  showSuggestions(kind,inp.value);
 });
+document.addEventListener('compositionend',event=>{
+ const inp=event.target.closest('.pk-search');
+ if(inp)showSuggestions(inp.dataset.search,inp.value);
+ const team=event.target.closest('.team-lookup');
+ if(team)showTeamSuggestions(Number(team.dataset.teamQuery),team.value);
+});
 document.addEventListener('keydown',async event=>{
+ if(event.isComposing||event.keyCode===229)return;
  const inp=event.target.closest('.pk-search');if(event.target.id==='breed-partner-filter'&&event.key==='Enter'){event.preventDefault();state.breedPartnerFilter=event.target.value.trim();render();return;}if(event.target.classList?.contains('team-lookup')&&event.key==='Enter'){event.preventDefault();await lookupTeamSlot(Number(event.target.dataset.teamQuery),event.target.value);return;}if(event.target.id==='raid-boss-search'&&event.key==='Enter'){event.preventDefault();document.querySelector('[data-action=raid-boss-lookup]')?.click();return;}if(event.target.id==='evo-search'&&event.key==='Enter'){event.preventDefault();state.evoQuery=event.target.value.trim();state.evoMore=false;render();return;}if(event.target.id==='ref-search'&&event.key==='Enter'){event.preventDefault();state.refQuery=event.target.value.trim();state.refSelected='';state.refExpanded=false;render();return;}if(event.target.id==='item-search'&&event.key==='Enter'){event.preventDefault();state.itemQuery=event.target.value.trim();state.itemSelected=searchItemGuides(state.itemQuery,state.itemCategory,state.itemRegion)[0]?.id||'';render();return;}if(event.target.id==='material-search'&&event.key==='Enter'){event.preventDefault();state.materialQuery=event.target.value.trim();const found=searchMaterials(state.materialQuery);state.selectedMaterial=found.materials[0]?.id||'';state.materialTarget=getMaterial(state.selectedMaterial)?.tradeFor?.quantity||3;render();return;}if(event.target.id==='move-search'&&event.key==='Enter'){event.preventDefault();state.moveQuery=event.target.value;state.selectedMove=findMove(state.moveQuery)?.id||'';render();return;}if(inp&&event.key==='Enter'){event.preventDefault();await lookup(inp.dataset.search);}
  if(inp&&event.key==='Escape'){const box=$('#suggest-'+inp.dataset.search);box?.classList.add('hidden');}
 });
@@ -3063,7 +3104,15 @@ if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
 render();
 // The 1.2 snapshot is published with the PWA and cached by its Service Worker.
 // A missing/corrupt snapshot never destroys existing curated offline functionality.
-if(location.protocol.startsWith('http'))initSVSnapshot().then(()=>{setBreedingCatalog(getBreedingCatalog());render();});
+if(location.protocol.startsWith('http')||document.getElementById?.('sv-offline-snapshot'))initSVSnapshot().then(()=>{
+ setBreedingCatalog(getBreedingCatalog());
+ // Never tear down the active mobile input while the keyboard is composing.
+ const active=document.activeElement;
+ if(active?.matches?.('.pk-search,.team-lookup')){
+   if(active.classList.contains('pk-search'))showSuggestions(active.dataset.search,active.value);
+   else showTeamSuggestions(Number(active.dataset.teamQuery),active.value);
+ }else render();
+});
 
 } catch (error) {
   console.error('太晶战术图鉴启动失败',error);
